@@ -43,7 +43,6 @@ from airflow.models import DAG, DagRun, TaskInstance
 from airflow.operators.dummy_operator import DummyOperator
 from airflow.settings import Session
 from airflow.utils import dates, timezone
-from airflow.utils.db import create_session
 from airflow.utils.state import State
 from airflow.utils.timezone import datetime
 from airflow.www_rbac import app as application
@@ -587,16 +586,18 @@ class TestLogView(TestBase):
         self.app.config['WTF_CSRF_ENABLED'] = False
         self.client = self.app.test_client()
         settings.configure_orm()
+        self.session = Session
         self.login()
 
         from airflow.www_rbac.views import dagbag
         dag = DAG(self.DAG_ID, start_date=self.DEFAULT_DATE)
         task = DummyOperator(task_id=self.TASK_ID, dag=dag)
         dagbag.bag_dag(dag, parent_dag=dag, root_dag=dag)
-        with create_session() as session:
-            self.ti = TaskInstance(task=task, execution_date=self.DEFAULT_DATE)
-            self.ti.try_number = 1
-            session.merge(self.ti)
+
+        self.ti = TaskInstance(task=task, execution_date=self.DEFAULT_DATE)
+        self.ti.try_number = 1
+        self.session.merge(self.ti)
+        self.session.commit()
 
     def tearDown(self):
         logging.config.dictConfig(DEFAULT_LOGGING_CONFIG)
@@ -618,10 +619,10 @@ class TestLogView(TestBase):
         [State.FAILED, 3, 3],
     ])
     def test_get_file_task_log(self, state, try_number, expected_num_logs_visible):
-        with create_session() as session:
-            self.ti.state = state
-            self.ti.try_number = try_number
-            session.merge(self.ti)
+        self.ti.state = state
+        self.ti.try_number = try_number
+        self.session.merge(self.ti)
+        self.session.commit()
 
         response = self.client.get(
             TestLogView.ENDPOINT, data=dict(
